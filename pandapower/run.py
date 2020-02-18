@@ -222,6 +222,8 @@ def runpp(net, algorithm='nr', calculate_voltage_angles="auto", init="auto",
                             passed_parameters=passed_parameters, **kwargs)
         _check_bus_index_and_print_warning_if_high(net)
         _check_gen_index_and_print_warning_if_high(net)
+        if "tap_changer" in kwargs:
+            net._options['tap_changer'] = kwargs['tap_changer']
         _powerflow(net, **kwargs)
 
 

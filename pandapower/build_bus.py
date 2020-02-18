@@ -13,7 +13,7 @@ from packaging import version
 
 from pandapower.auxiliary import _sum_by_group
 from pandapower.pypower.idx_bus import BUS_I, BASE_KV, PD, QD, GS, BS, VMAX, VMIN, BUS_TYPE, NONE, VM, VA,\
-                               CID, CZD, bus_cols, REF
+                               CID, CZD, bus_cols, REF, VSET
 
 try:
     from numba import jit
@@ -306,6 +306,9 @@ def _build_bus_ppc(net, ppc):
 
     if mode == "sc":
         _add_c_to_ppc(net, ppc)
+
+    if "set_vm_pu" in net.bus:
+        ppc["bus"][:n_bus, VSET] = net["bus"].set_vm_pu.values
 
     if net._options["mode"] == "opf":
         if "max_vm_pu" in net.bus:

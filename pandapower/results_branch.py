@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from pandapower.auxiliary import _sum_by_group
-from pandapower.pypower.idx_brch import F_BUS, T_BUS, PF, QF, PT, QT, BR_R
+from pandapower.pypower.idx_brch import F_BUS, T_BUS, PF, QF, PT, QT, BR_R, TAP
 from pandapower.pypower.idx_bus import BASE_KV, VM, VA
 
 
@@ -165,6 +165,18 @@ def _get_trafo_results(net, ppc, s_ft, i_ft, suffix=None):
     res_trafo_df["vm_lv_pu"].values[:] = ppc["bus"][lv_buses, VM]
     res_trafo_df["va_lv_degree"].values[:] = ppc["bus"][lv_buses, VA]
     res_trafo_df["loading_percent"].values[:] = loading_percent
+
+    if "tap_changer" in net['_options'] and net['_options']['tap_changer']:
+        tap = ppc['branch'][f:t, TAP].real
+        tap_step_percent = net.trafo["tap_step_percent"].values
+        tap_neutral = net.trafo["tap_neutral"].values
+        tap_sign = np.ones(len(tap_neutral))
+        tap_sign[net.trafo.tap_side=='lv'] = -1
+        t_nom = net.trafo['vn_lv_kv'].values / net.trafo['vn_hv_kv'].values * \
+                net.bus.loc[net.trafo.hv_bus, "vn_kv"].values / \
+                net.bus.loc[net.trafo.lv_bus, "vn_kv"].values
+        tap[tap_sign<0] = 1/tap[tap_sign<0]
+        net.trafo["tap_pos"].values[:] = (tap - 1) * 100 / tap_step_percent * t_nom + tap_neutral
 
 
 def _get_trafo3w_lookups(net):

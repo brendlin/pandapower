@@ -6,12 +6,13 @@
 
 from time import time
 
-from numpy import flatnonzero as find, r_, zeros, argmax, setdiff1d, any
+from numpy import flatnonzero as find, r_, zeros, argmax, setdiff1d, any, absolute
 
 from pandapower.pf.ppci_variables import _get_pf_variables_from_ppci, _store_results_from_pf_in_ppci
 from pandapower.pf.run_dc_pf import _run_dc_pf
 from pandapower.pypower.bustypes import bustypes
-from pandapower.pypower.idx_bus import PD, QD, BUS_TYPE, PQ, GS, BS
+from pandapower.pypower.idx_bus import PD, QD, BUS_TYPE, PQ, GS, BS, BASE_KV, VM, VA, VSET
+from pandapower.pypower.idx_brch import F_BUS, T_BUS, TAP, SHIFT
 from pandapower.pypower.idx_gen import PG, QG, QMAX, QMIN, GEN_BUS, GEN_STATUS
 from pandapower.pypower.makeSbus import makeSbus
 from pandapower.pypower.makeYbus import makeYbus as makeYbus_pypower
@@ -47,6 +48,8 @@ def _run_newton_raphson_pf(ppci, options):
         ppci = _run_dc_pf(ppci)
     if options["enforce_q_lims"]:
         ppci, success, iterations, bus, gen, branch = _run_ac_pf_with_qlims_enforced(ppci, options)
+    elif "tap_changer" in options and options["tap_changer"]:
+        ppci, success, iterations, bus, gen, branch = _run_ac_pf_with_tap_changers(ppci, options)
     else:
         ppci, success, iterations = _run_ac_pf_without_qlims_enforced(ppci, options)
         # update data matrices with solution store in ppci
@@ -134,6 +137,30 @@ def _run_ac_pf_without_qlims_enforced(ppci, options):
                                   "ref_gens": ref_gens, "Ybus": Ybus, "Yf": Yf, "Yt": Yt})
 
     return ppci, success, iterations
+
+
+def _run_ac_pf_with_tap_changers(ppci, options):
+    baseMVA, bus, gen, branch, ref, pv, pq, on, _, V0, ref_gens = _get_pf_variables_from_ppci(ppci)
+
+    is_trafo = bus[branch[:, F_BUS].real.astype(int), BASE_KV] != bus[branch[:, T_BUS].real.astype(int), BASE_KV]
+    controlled_bus = branch[is_trafo, T_BUS].real.astype(int)
+    v_set = bus[controlled_bus, VSET]
+    tol = 1e-3
+    c = 0.5
+
+    max_iter = 100
+    for i in range(max_iter):
+        ppci, success, iterations = _run_ac_pf_without_qlims_enforced(ppci, options)
+        # read results
+        bus, gen, branch = ppci_to_pfsoln(ppci, options)
+        delta_v = v_set - bus[controlled_bus, VM]
+
+        if all(absolute(delta_v) < tol):
+            return ppci, success, iterations, bus, gen, branch
+
+        ppci['branch'][is_trafo, TAP] = branch[is_trafo, TAP] - c * delta_v
+    else:
+        raise UserWarning(f"load flow not converged in {max_iter} iterations")
 
 
 def _run_ac_pf_with_qlims_enforced(ppci, options):
