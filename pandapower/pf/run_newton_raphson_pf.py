@@ -155,12 +155,12 @@ def _run_ac_pf_with_tap_changers(ppci, options):
         bus, gen, branch = ppci_to_pfsoln(ppci, options)
         delta_v = v_set - bus[controlled_bus, VM]
 
-        if all(absolute(delta_v) < tol):
+        if all(absolute(delta_v) < tol) or not success:
             return ppci, success, iterations, bus, gen, branch
 
         ppci['branch'][is_trafo, TAP] = branch[is_trafo, TAP] - c * delta_v
-    else:
-        raise UserWarning(f"load flow not converged in {max_iter} iterations")
+
+    return ppci, success, iterations, bus, gen, branch
 
 
 def _run_ac_pf_with_qlims_enforced(ppci, options):
