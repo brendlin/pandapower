@@ -717,7 +717,7 @@ def create_trafo_trace(net, trafos=None, color='green', width=5, infofunc=None, 
 
 
 def draw_traces(traces, on_map=False, map_style='basic', showlegend=True, figsize=1,
-                aspectratio='auto', filename='temp-plot.html'):
+                aspectratio='auto', filename='temp-plot.html', auto_open=True):
     """
     plots all the traces (which can be created using :func:`create_bus_trace`, :func:`create_line_trace`,
     :func:`create_trafo_trace`)
@@ -747,6 +747,8 @@ def draw_traces(traces, on_map=False, map_style='basic', showlegend=True, figsiz
 
         **filename** (str, "temp-plot.html") - plots to a html file called filename
 
+        **auto_open** (bool, 'True') - automatically open plot in browser
+
     OUTPUT:
         **figure** (graph_objs._figure.Figure) figure object
 
@@ -768,8 +770,8 @@ def draw_traces(traces, on_map=False, map_style='basic', showlegend=True, figsiz
         # change traces for mapbox
         # change trace_type to scattermapbox and rename x to lat and y to lon
         for trace in traces:
-            trace['lat'] = trace.pop('x')
-            trace['lon'] = trace.pop('y')
+            trace['lat'] = trace.pop('y')
+            trace['lon'] = trace.pop('x')
             trace['type'] = 'scattermapbox'
             if "line" in trace and isinstance(trace["line"], Line):
                 # scattermapboxplot lines do not support dash for some reason, make it a red line instead
@@ -849,9 +851,9 @@ def draw_traces(traces, on_map=False, map_style='basic', showlegend=True, figsiz
     if _in_ipynb():
         from plotly.offline import init_notebook_mode, iplot as plot
         init_notebook_mode()
+        plot(fig, filename=filename)
     else:
         from plotly.offline import plot as plot
-
-    plot(fig, filename=filename)
+        plot(fig, filename=filename, auto_open=auto_open)
 
     return fig

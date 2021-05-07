@@ -13,6 +13,7 @@ import pytest
 import pandapower as pp
 import pandapower.networks as nw
 import pandapower.toolbox as tb
+from pandas._testing import assert_series_equal
 
 
 def test_opf_task():
@@ -1053,6 +1054,62 @@ def test_replace_gen_sgen():
             assert pp.nets_equal(net, net2)
 
 
+def test_replace_pq_elmtype():
+
+    def check_elm_shape(net, elm_shape: dict):
+        for elm, no in elm_shape.items():
+            assert net[elm].shape[0] == no
+
+    net = pp.create_empty_network()
+    pp.create_buses(net, 3, 20)
+    pp.create_ext_grid(net, 0)
+    for to_bus in [1, 2]:
+        pp.create_line(net, 0, to_bus, 0.6, 'NA2XS2Y 1x95 RM/25 12/20 kV')
+    names = ["load 1", "load 2"]
+    types = ["house", "commercial"]
+    pp.create_loads(net, [1, 2], 0.8, 0.1, sn_mva=1, min_p_mw=0.5, max_p_mw=1.0, controllable=True,
+                    name=names, scaling=[0.8, 1], type=types)
+    pp.create_poly_cost(net, 0, "load", 7)
+    pp.create_poly_cost(net, 1, "load", 3)
+    pp.runpp(net)
+    net_orig = copy.deepcopy(net)
+
+    # --- test unset old_indices, cols_to_keep and add_cols_to_keep
+    pp.replace_pq_elmtype(net, "load", "sgen", new_indices=[2, 7], cols_to_keep=["type"],
+                          add_cols_to_keep=["scaling"])  # cols_to_keep is not
+    # default but ["type"] -> min/max p_mw get lost
+    check_elm_shape(net, {"load": 0, "sgen": 2})
+    assert list(net.sgen.index) == [2, 7]
+    assert list(net.sgen.type.values) == types
+    assert list(net.sgen.name.values) == names
+    assert net.sgen.controllable.astype(bool).all()
+    assert "min_p_mw" not in net.sgen.columns
+    pp.runpp(net)
+    assert pp.dataframes_equal(net_orig.res_bus, net.res_bus)
+
+    # --- test set old_indices and add_cols_to_keep for different element types
+    net = copy.deepcopy(net_orig)
+    add_cols_to_keep = ["scaling", "type", "sn_mva"]
+    pp.replace_pq_elmtype(net, "load", "sgen", old_indices=1, add_cols_to_keep=add_cols_to_keep)
+    check_elm_shape(net, {"load": 1, "sgen": 1})
+    pp.runpp(net)
+    assert pp.dataframes_equal(net_orig.res_bus, net.res_bus)
+    assert net.sgen.max_p_mw.at[0] == - 0.5
+    assert net.sgen.min_p_mw.at[0] == - 1.0
+
+    pp.replace_pq_elmtype(net, "sgen", "storage", old_indices=0, add_cols_to_keep=add_cols_to_keep)
+    check_elm_shape(net, {"load": 1, "storage": 1})
+    pp.runpp(net)
+    assert pp.dataframes_equal(net_orig.res_bus, net.res_bus)
+
+    pp.replace_pq_elmtype(net, "storage", "load", add_cols_to_keep=add_cols_to_keep)
+    pp.runpp(net)
+    check_elm_shape(net, {"storage": 0, "sgen": 0})
+    net.sgen = net_orig.sgen
+    net.storage = net_orig.storage
+    assert pp.nets_equal(net_orig, net)
+
+
 def test_get_connected_elements_dict():
     net = nw.example_simple()
     conn = pp.get_connected_elements_dict(net, [0])
@@ -1138,6 +1195,103 @@ def test_repl_to_line():
 
     assert np.allclose(vm1, vm0)
     assert np.allclose(va1, va0)
+
+def test_repl_to_line_with_switch():
+    """
+    Same test as above, but this time in comparison to actual replacement
+    """
+    net = nw.example_multivoltage()
+    pp.runpp(net)
+
+    for testindex in net.line.index:
+        if net.line.in_service.loc[testindex]:
+            # todo print weg
+            print("testing line " + str(testindex))
+            line = net.line.loc[testindex]
+            fbus = line.from_bus
+            tbus = line.to_bus
+            len = line.length_km
+
+            if "184-AL1/30-ST1A" in net.line.std_type.loc[testindex]:
+                std = "243-AL1/39-ST1A 110.0"
+            elif "NA2XS2Y" in net.line.std_type.loc[testindex]:
+                std = "NA2XS2Y 1x240 RM/25 6/10 kV"
+            elif "NAYY" in net.line.std_type.loc[testindex]:
+                std = "NAYY 4x150 SE"
+            elif " 15-AL1/3-ST1A" in net.line.std_type.loc[testindex]:
+                std = "24-AL1/4-ST1A 0.4"
+
+            # create an oos line at the same buses
+            REPL = pp.create_line(net, from_bus=fbus, to_bus=tbus, length_km=len, std_type=std)
+
+            for bus in fbus, tbus:
+                if bus in net.switch[(net.switch.closed == False) & (net.switch.element == testindex)].bus.values:
+                    pp.create_switch(net, bus=bus, element=REPL, closed=False, et="l", type="LBS")
+
+            # calculate runpp with REPL
+            net.line.in_service[testindex] = False
+            net.line.in_service[REPL] = True
+            pp.runpp(net)
+
+            fbus_repl = net.res_bus.loc[fbus]
+            tbus_repl = net.res_bus.loc[tbus]
+
+            ploss_repl = (net.res_line.loc[REPL].p_from_mw - net.res_line.loc[REPL].p_to_mw )
+            qloss_repl =(net.res_line.loc[REPL].q_from_mvar - net.res_line.loc[REPL].q_to_mvar )
+
+            # get ne line impedances
+            new_idx = tb.repl_to_line(net, testindex, std, in_service=True)
+            # activate new idx line
+            net.line.in_service[REPL] = False
+            net.line.in_service[testindex] = True
+            net.line.in_service[new_idx] = True
+            pp.runpp(net)
+            # compare lf results
+            fbus_ne = net.res_bus.loc[fbus]
+            tbus_ne = net.res_bus.loc[tbus]
+            ploss_ne = (net.res_line.loc[testindex].p_from_mw - net.res_line.loc[testindex].p_to_mw)+\
+                  (net.res_line.loc[new_idx].p_from_mw - net.res_line.loc[new_idx].p_to_mw)
+            qloss_ne = (net.res_line.loc[testindex].q_from_mvar - net.res_line.loc[testindex].q_to_mvar )+\
+                  (net.res_line.loc[new_idx].q_from_mvar - net.res_line.loc[new_idx].q_to_mvar)
+
+
+            assert_series_equal(fbus_repl, fbus_ne, atol=1e-2)
+            assert_series_equal(tbus_repl, tbus_ne)
+            assert np.isclose(ploss_repl,ploss_ne, atol=1e-5)
+            assert np.isclose(qloss_repl,qloss_ne)
+
+            # and reset to unreinforced state again
+            net.line.in_service[testindex] = True
+            net.line.in_service[new_idx] = False
+            net.line.in_service[REPL] = False
+
+def test_merge_parallel_line():
+    net = nw.example_multivoltage()
+    pp.runpp(net)
+    assert net.line.parallel.at[5] == 2
+
+    line = net.line.loc[5]
+    fbus = line.from_bus
+    tbus = line.to_bus
+
+    fbus_0 = net.res_bus.loc[fbus]
+    tbus_0 = net.res_bus.loc[tbus]
+    ploss_0 = (net.res_line.loc[5].p_from_mw - net.res_line.loc[5].p_to_mw)
+    qloss_0 = (net.res_line.loc[5].q_from_mvar - net.res_line.loc[5].q_to_mvar)
+
+    net = tb.merge_parallel_line(net,5)
+
+    assert net.line.parallel.at[5] == 1
+    pp.runpp(net)
+    fbus_1 = net.res_bus.loc[fbus]
+    tbus_1 = net.res_bus.loc[tbus]
+    ploss_1 = (net.res_line.loc[5].p_from_mw - net.res_line.loc[5].p_to_mw)
+    qloss_1 = (net.res_line.loc[5].q_from_mvar - net.res_line.loc[5].q_to_mvar)
+
+    assert_series_equal(fbus_0, fbus_1)
+    assert_series_equal(tbus_0, tbus_1)
+    assert np.isclose(ploss_0, ploss_1, atol=1e-5)
+    assert np.isclose(qloss_0, qloss_1)
 
 
 if __name__ == '__main__':
