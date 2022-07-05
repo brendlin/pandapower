@@ -82,11 +82,29 @@ def _create_J_without_numba(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack):
     return J
 
 
-def create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba, slack_weights, dist_slack):
+def _create_J_modification_trafo_taps(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack):
+    J = np.array([])
+    return J
+
+def _extend_J(J, len_control):
+    # len_J = len(pvpq) + len(pq)  # 2n
+    len_J = J.shape[0]
+    # todo: use sparse functions instead of np.eye, np.zeros
+    K_J = vstack([sparse(np.eye(len_J)), sparse(np.zeros([len_control, len_J]))], format="csr")
+    J_nr = K_J * J * K_J.T
+    return J_nr
+
+
+def create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba, slack_weights, dist_slack, trafo_taps, x_control):
     if numba:
         J = _create_J_with_numba(Ybus, V, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, slack_weights, dist_slack)
     else:
         J = _create_J_without_numba(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack)
+    if trafo_taps:
+        # todo: implement J_M for trafo taps
+        J_m = _create_J_modification_trafo_taps(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack)
+        J_nr = _extend_J(J, len(x_control))
+        J = J_nr + J_m
     return J
 
 

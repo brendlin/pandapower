@@ -47,6 +47,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     v_debug = options["v_debug"]
     use_umfpack = options["use_umfpack"]
     permc_spec = options["permc_spec"]
+    trafo_taps = options.get("trafo_taps", False)
 
     baseMVA = ppci['baseMVA']
     bus = ppci['bus']
@@ -97,6 +98,8 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     nref = len(ref)
     npv = len(pv)
     npq = len(pq)
+    ntap_va = 0  # todo
+    ntap_vm = 0  # todo
     j0 = 0
     j1 = nref if dist_slack else 0
     j2 = j1 + npv  # j1:j2 - V angle of pv buses
@@ -104,11 +107,15 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     j4 = j2 + npq  # j3:j4 - V angle of pq buses
     j5 = j4
     j6 = j4 + npq  # j5:j6 - V mag of pq buses
+    j7 = j6 + ntap_va  # trafo tap: modification of va_degree
+    j8 = j7 + ntap_vm  # trafo tap: modification of vm_pu
 
     # make initial guess for the slack
     slack = (gen[:, PG].sum() - bus[:, PD].sum()) / baseMVA
+    # make initial guess for the tap control variables
+    x_control = np.zeros(ntap_va + ntap_vm)
     # evaluate F(x0)
-    F = _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights, dist_slack, slack)
+    F = _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control)
     converged = _check_for_convergence(F, tol)
 
     Ybus = Ybus.tocsr()
@@ -120,7 +127,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
         i = i + 1
 
         J = create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba,
-                                   slack_weights, dist_slack, trafo_taps=False, x_control=None)
+                                   slack_weights, dist_slack, trafo_taps, x_control)
 
         dx = -1 * spsolve(J, F, permc_spec=permc_spec, use_umfpack=use_umfpack)
         # update voltage
@@ -131,6 +138,9 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
         if npq and not iwamoto:
             Va[pq] = Va[pq] + dx[j3:j4]
             Vm[pq] = Vm[pq] + dx[j5:j6]
+        if trafo_taps:
+            x_control[0:ntap_va] += dx[j6:j7]
+            x_control[ntap_va:ntap_vm] += dx[j7:j8]
 
         # iwamoto multiplier to increase convergence
         if iwamoto:
@@ -147,19 +157,23 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
         if voltage_depend_loads:
             Sbus = makeSbus(baseMVA, bus, gen, vm=Vm)
 
-        F = _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights, dist_slack, slack)
+        F = _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control)
 
         converged = _check_for_convergence(F, tol)
 
     return V, converged, i, J, Vm_it, Va_it
 
 
-def _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None):
+def _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None, trafo_taps=False, x_control=None):
     # evalute F(x)
     if dist_slack:
         # we include the slack power (slack * contribution factors) in the mismatch calculation
         mis = V * conj(Ybus * V) - Sbus + slack_weights * slack
         F = r_[mis[ref].real, mis[pv].real, mis[pq].real, mis[pq].imag]
+    elif trafo_taps:
+        # todo
+        mis = V * conj(Ybus * V) - Sbus
+        F = r_[mis[pv].real, mis[pq].real, mis[pq].imag]
     else:
         mis = V * conj(Ybus * V) - Sbus
         F = r_[mis[pv].real, mis[pq].real, mis[pq].imag]
