@@ -1,6 +1,6 @@
 from numpy import complex128, float64, int32, r_
 from numpy.core.multiarray import zeros, empty, array
-from scipy.sparse import csr_matrix as sparse, vstack, hstack
+from scipy.sparse import csr_matrix as sparse, vstack, hstack, eye
 
 from pandapower.pypower.dSbus_dV import dSbus_dV
 
@@ -82,17 +82,9 @@ def _create_J_without_numba(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack):
     return J
 
 
-def _create_J_modification_trafo_taps(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack):
-    J = np.array([])
-    return J
-
-def _extend_J(J, len_control):
-    # len_J = len(pvpq) + len(pq)  # 2n
-    len_J = J.shape[0]
-    # todo: use sparse functions instead of np.eye, np.zeros
-    K_J = vstack([sparse(np.eye(len_J)), sparse(np.zeros([len_control, len_J]))], format="csr")
-    J_nr = K_J * J * K_J.T
-    return J_nr
+def _create_J_modification_trafo_taps(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack, len_J, len_control):
+    J_m = sparse((len_J + len_control, len_J + len_control))
+    return J_m
 
 
 def create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba, slack_weights, dist_slack, trafo_taps, x_control):
@@ -101,9 +93,11 @@ def create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup
     else:
         J = _create_J_without_numba(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack)
     if trafo_taps:
-        # todo: implement J_M for trafo taps
-        J_m = _create_J_modification_trafo_taps(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack)
-        J_nr = _extend_J(J, len(x_control))
+        # todo: implement J_m for trafo taps
+        J_m = _create_J_modification_trafo_taps(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack, J.shape[0],
+                                                len(x_control))
+        K_J = vstack([eye(J.shape[0], format="csr"), sparse((len(x_control), J.shape[0]))], format="csr")
+        J_nr = K_J * J * K_J.T  # this extends the J matrix with 0-rows and 0-columns
         J = J_nr + J_m
     return J
 
