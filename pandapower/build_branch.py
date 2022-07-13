@@ -13,7 +13,7 @@ import pandas as pd
 
 from pandapower.auxiliary import get_values
 from pandapower.pypower.idx_brch import F_BUS, T_BUS, BR_R, BR_X, BR_B, TAP, SHIFT, BR_STATUS, RATE_A, \
-    BR_R_ASYM, BR_X_ASYM, branch_cols
+    BR_R_ASYM, BR_X_ASYM, VM_SET_PU, branch_cols
 from pandapower.pypower.idx_bus import BASE_KV, VM, VA
 
 
@@ -201,6 +201,8 @@ def _calc_trafo_parameter(net, ppc):
         sn_mva = trafo.sn_mva.values
         df = trafo.df.values
         branch[f:t, RATE_A] = max_load / 100. * sn_mva * df * parallel
+    if net._options.get("trafo_taps", False):
+        branch[f:t, VM_SET_PU] = trafo["vm_set_pu"] if "vm_set_pu" in trafo.columns else np.nan
 
 
 def get_trafo_values(trafo_df, par):

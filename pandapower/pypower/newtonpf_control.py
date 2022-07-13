@@ -11,7 +11,8 @@
 """Solves the power flow using a full Newton's method.
 """
 
-from numpy import angle, exp, linalg, conj, r_, Inf, arange, zeros, max, zeros_like, column_stack, float64
+from numpy import angle, exp, linalg, conj, r_, Inf, arange, zeros, max, zeros_like, column_stack, float64,\
+    int64, nan_to_num, flatnonzero
 from scipy.sparse.linalg import spsolve
 
 from pandapower.pf.iwamoto_multiplier import _iwamoto_step
@@ -19,6 +20,7 @@ from pandapower.pypower.makeSbus import makeSbus
 from pandapower.pf.create_jacobian import create_jacobian_matrix, get_fastest_jacobian_function
 from pandapower.pypower.idx_gen import PG
 from pandapower.pypower.idx_bus import PD, SL_FAC
+from pandapower.pypower.idx_brch import T_BUS, VM_SET_PU
 
 
 def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
@@ -52,6 +54,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     baseMVA = ppci['baseMVA']
     bus = ppci['bus']
     gen = ppci['gen']
+    branch = ppci["branch"]
     slack_weights = bus[:, SL_FAC].astype(float64)  ## contribution factors for distributed slack
 
     # initialize
@@ -114,8 +117,11 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     slack = (gen[:, PG].sum() - bus[:, PD].sum()) / baseMVA
     # make initial guess for the tap control variables
     x_control = zeros(ntap_va + ntap_vm)
+    tap_control_branches = flatnonzero(nan_to_num(branch[:, VM_SET_PU]))
+    controlled_bus = branch[tap_control_branches, T_BUS].real.astype(int64)
+    vm_set_pu = branch[tap_control_branches, VM_SET_PU].real.astype(float64)
     # evaluate F(x0)
-    F = _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control)
+    F = _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control, controlled_bus, vm_set_pu)
     converged = _check_for_convergence(F, tol)
 
     Ybus = Ybus.tocsr()
@@ -157,26 +163,28 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
         if voltage_depend_loads:
             Sbus = makeSbus(baseMVA, bus, gen, vm=Vm)
 
-        F = _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control)
+        F = _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control, controlled_bus, vm_set_pu)
 
         converged = _check_for_convergence(F, tol)
 
     return V, converged, i, J, Vm_it, Va_it
 
 
-def _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None, trafo_taps=False, x_control=None):
+def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None, trafo_taps=False, x_control=None, controlled_bus=None, vm_set_pu=None):
     # evalute F(x)
     if dist_slack:
         # we include the slack power (slack * contribution factors) in the mismatch calculation
         mis = V * conj(Ybus * V) - Sbus + slack_weights * slack
         F = r_[mis[ref].real, mis[pv].real, mis[pq].real, mis[pq].imag]
-    elif trafo_taps:
-        # todo
-        mis = V * conj(Ybus * V) - Sbus
-        F = r_[mis[pv].real, mis[pq].real, mis[pq].imag]
     else:
         mis = V * conj(Ybus * V) - Sbus
         F = r_[mis[pv].real, mis[pq].real, mis[pq].imag]
+
+    if trafo_taps:
+        F1 = zeros(int(len(x_control) / 2))  # todo
+        F2 = Vm[controlled_bus] - vm_set_pu
+        F = r_[F, F1, F2]
+
     return F
 
 

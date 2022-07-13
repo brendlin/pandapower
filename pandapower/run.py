@@ -62,7 +62,7 @@ def runpp(net, algorithm='nr', calculate_voltage_angles="auto", init="auto",
           max_iteration="auto", tolerance_mva=1e-8, trafo_model="t",
           trafo_loading="current", enforce_q_lims=False, check_connectivity=True,
           voltage_depend_loads=True, consider_line_temperature=False,
-          run_control=False, distributed_slack=False, **kwargs):
+          run_control=False, distributed_slack=False, trafo_taps=False, **kwargs):
     """
     Runs a power flow
 
@@ -226,6 +226,7 @@ def runpp(net, algorithm='nr', calculate_voltage_angles="auto", init="auto",
                             voltage_depend_loads=voltage_depend_loads,
                             consider_line_temperature=consider_line_temperature,
                             distributed_slack=distributed_slack,
+                            trafo_taps=trafo_taps,
                             passed_parameters=passed_parameters, **kwargs)
         _check_bus_index_and_print_warning_if_high(net)
         _check_gen_index_and_print_warning_if_high(net)

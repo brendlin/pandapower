@@ -310,6 +310,7 @@ def build_ppc_and_Ybus(net):
                         check_connectivity=True,
                         voltage_depend_loads=True,
                         consider_line_temperature=False,
+                        trafo_taps=False,
                         passed_parameters=_passed_runpp_parameters(loc))
 
     ppc, ppci = _pd2ppc(net)

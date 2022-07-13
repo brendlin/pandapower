@@ -951,7 +951,7 @@ def _init_runpp_options(net, algorithm, calculate_voltage_angles, init,
                         trafo_loading, enforce_q_lims, check_connectivity,
                         voltage_depend_loads, passed_parameters=None,
                         consider_line_temperature=False,
-                        distributed_slack=False, **kwargs):
+                        distributed_slack=False, trafo_taps=False, **kwargs):
     """
     Inits _options in net for runpp.
     """
@@ -1060,7 +1060,7 @@ def _init_runpp_options(net, algorithm, calculate_voltage_angles, init,
     _add_pf_options(net, tolerance_mva=tolerance_mva, trafo_loading=trafo_loading,
                     numba=numba, ac=ac, algorithm=algorithm, max_iteration=max_iteration,
                     v_debug=v_debug, only_v_results=only_v_results, use_umfpack=use_umfpack,
-                    permc_spec=permc_spec, lightsim2grid=lightsim2grid)
+                    permc_spec=permc_spec, lightsim2grid=lightsim2grid, trafo_taps=trafo_taps)
     net._options.update(overrule_options)
 
 
