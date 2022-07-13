@@ -12,7 +12,7 @@
 """
 
 from numpy import angle, exp, linalg, conj, r_, Inf, arange, zeros, max, zeros_like, column_stack, float64,\
-    int64, nan_to_num, flatnonzero
+    int64, nan_to_num, flatnonzero, tan, deg2rad
 from scipy.sparse.linalg import spsolve
 
 from pandapower.pf.iwamoto_multiplier import _iwamoto_step
@@ -20,7 +20,7 @@ from pandapower.pypower.makeSbus import makeSbus
 from pandapower.pf.create_jacobian import create_jacobian_matrix, get_fastest_jacobian_function
 from pandapower.pypower.idx_gen import PG
 from pandapower.pypower.idx_bus import PD, SL_FAC
-from pandapower.pypower.idx_brch import T_BUS, VM_SET_PU, SHIFT
+from pandapower.pypower.idx_brch import F_BUS, T_BUS, VM_SET_PU, SHIFT
 
 
 def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
@@ -118,12 +118,13 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     # make initial guess for the tap control variables
     x_control = zeros(ntap_va + ntap_vm)
     tap_control_branches = flatnonzero(nan_to_num(branch[:, VM_SET_PU]))
+    hv_bus = branch[tap_control_branches, F_BUS].real.astype(int64)
     controlled_bus = branch[tap_control_branches, T_BUS].real.astype(int64)
     vm_set_pu = branch[tap_control_branches, VM_SET_PU].real.astype(float64)
     shift_degree = branch[tap_control_branches, SHIFT].real.astype(float64)
     # evaluate F(x0)
     F = _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control,
-                     controlled_bus, vm_set_pu, shift_degree)
+                     hv_bus, controlled_bus, vm_set_pu, shift_degree)
     converged = _check_for_convergence(F, tol)
 
     Ybus = Ybus.tocsr()
@@ -166,14 +167,14 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
             Sbus = makeSbus(baseMVA, bus, gen, vm=Vm)
 
         F = _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control,
-                         controlled_bus, vm_set_pu, shift_degree)
+                         hv_bus, controlled_bus, vm_set_pu, shift_degree)
 
         converged = _check_for_convergence(F, tol)
 
     return V, converged, i, J, Vm_it, Va_it
 
 
-def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None, trafo_taps=False, x_control=None, controlled_bus=None, vm_set_pu=None, shift_degree=None):
+def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None, trafo_taps=False, x_control=None, hv_bus=None, controlled_bus=None, vm_set_pu=None, shift_degree=None):
     # evalute F(x)
     if dist_slack:
         # we include the slack power (slack * contribution factors) in the mismatch calculation
@@ -184,7 +185,8 @@ def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_sl
         F = r_[mis[pv].real, mis[pq].real, mis[pq].imag]
 
     if trafo_taps:
-        F1 = zeros(int(len(x_control) / 2))  # todo
+        # todo: check if the Va indexing needs to have a lookup
+        F1 = tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(shift_degree))
         F2 = Vm[controlled_bus] - vm_set_pu
         F = r_[F, F1, F2]
 
