@@ -113,7 +113,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     # make initial guess for the slack
     slack = (gen[:, PG].sum() - bus[:, PD].sum()) / baseMVA
     # make initial guess for the tap control variables
-    x_control = np.zeros(ntap_va + ntap_vm)
+    x_control = zeros(ntap_va + ntap_vm)
     # evaluate F(x0)
     F = _evaluate_Fx(Ybus, V, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control)
     converged = _check_for_convergence(F, tol)

@@ -83,6 +83,7 @@ def _create_J_without_numba(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack):
 
 
 def _create_J_modification_trafo_taps(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack, len_J, len_control):
+    # todo
     J_m = sparse((len_J + len_control, len_J + len_control))
     return J_m
 
