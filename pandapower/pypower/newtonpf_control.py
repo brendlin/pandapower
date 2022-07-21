@@ -12,8 +12,9 @@
 """
 
 from numpy import angle, exp, linalg, conj, r_, Inf, arange, zeros, max, zeros_like, column_stack, float64,\
-    int64, nan_to_num, flatnonzero, tan, deg2rad
+    int64, nan_to_num, flatnonzero, tan, deg2rad, append
 from scipy.sparse.linalg import spsolve
+from scipy.sparse import csr_matrix as sparse, vstack, hstack, eye
 
 from pandapower.pf.iwamoto_multiplier import _iwamoto_step
 from pandapower.pypower.makeSbus import makeSbus
@@ -127,7 +128,13 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
                      hv_bus, controlled_bus, vm_set_pu, shift_degree)
     converged = _check_for_convergence(F, tol)
 
+    if trafo_taps:
+        Ybus = _Ybus_modification(Ybus,x_control,hv_bus,trafo_taps,controlled_bus)        
+        x_control = [1.+0.j]
+        V = append(V,x_control)
+    
     Ybus = Ybus.tocsr()
+
     J = None
 
     # do Newton iterations
@@ -173,6 +180,38 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
 
     return V, converged, i, J, Vm_it, Va_it
 
+def _Ybus_modification(Ybus,x_control,hv_bus,trafo_taps,controlled_bus):
+    ##### modify the Ybus to consider the voltage source at regulating Transformer
+
+    YS = Ybus.shape[0]  
+
+    x_control = [1.+0.j]  ### to be deleted
+    hv_bus = [0]     ### to be deleted
+    controlled_bus = [1]  ### to be deleted
+    
+    YM_ROW = vstack([Ybus, sparse((int(len(x_control)),YS))], format="csr")   ### add zero raws
+    YM_COL = hstack([YM_ROW, sparse((YS +int(len(x_control)),int(len(x_control))))], format="csr")  ### add zero column
+
+    c = 0
+
+    for i,j in zip(hv_bus,controlled_bus):
+
+        YT_d = Ybus[i,i]   ####TODO what if there is multi regulating transformers 
+        YT_nd = YT_d * -1 
+        
+        ##### exchange zeros with the extended Trafo Ybus values
+
+        YM_COL[i,YS + c] = YT_nd
+        YM_COL[j,YS + c] = YT_d
+        YM_COL[YS + c,i] = YT_d
+        YM_COL[YS + c,j] = YT_nd
+        YM_COL[YS + c,YS + c] = YT_nd
+
+        c =+ 1
+
+    Ybus = YM_COL
+
+    return Ybus
 
 def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None, trafo_taps=False, x_control=None, hv_bus=None, controlled_bus=None, vm_set_pu=None, shift_degree=None):
     # evalute F(x)
@@ -187,7 +226,7 @@ def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_sl
     if trafo_taps:
         # todo: check if the Va indexing needs to have a lookup
         F1 = tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(shift_degree))
-        F2 = Vm[controlled_bus] - vm_set_pu
+        F2 = Vm[controlled_bus] - vm_set_pu     
         F = r_[F, F1, F2]
 
     return F
