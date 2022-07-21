@@ -136,6 +136,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     Ybus = Ybus.tocsr()
 
     J = None
+    #here comes Y modification:
 
     # do Newton iterations
     while (not converged and i < max_it):
