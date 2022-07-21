@@ -181,7 +181,8 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     return V, converged, i, J, Vm_it, Va_it
 
 def _Ybus_modification(Ybus,x_control,hv_bus,trafo_taps,controlled_bus):
-    ##### modify the Ybus to consider the voltage source at regulating Transformer
+    ##### modify the Ybus to consider the voltage source at regulating Transformer  dfd
+    
 
     YS = Ybus.shape[0]  
 
