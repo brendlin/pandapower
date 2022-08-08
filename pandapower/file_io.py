@@ -24,11 +24,19 @@ try:
 except ImportError:
     openpyxl_INSTALLED = False
 
-from pandapower.auxiliary import soft_dependency_error
+from pandapower.auxiliary import soft_dependency_error, _preserve_dtypes
 from pandapower.auxiliary import pandapowerNet
 from pandapower.convert_format import convert_format
 from pandapower.create import create_empty_network
 import pandapower.io_utils as io_utils
+
+try:
+    import pandaplan.core.pplog as logging
+except ImportError:
+    import logging
+
+logger = logging.getLogger(__name__)
+
 
 def to_pickle(net, filename):
     """
@@ -123,19 +131,6 @@ def to_json(net, filename=None, encryption_key=None):
             fp.write(json_string)
 
 
-def to_sql(net, con, include_results=True):
-    dodfs = io_utils.to_dict_of_dfs(net, include_results=include_results)
-    for name, data in dodfs.items():
-        data.to_sql(name, con, if_exists="replace")
-
-
-def to_sqlite(net, filename, include_results=True):
-    import sqlite3
-    conn = sqlite3.connect(filename)
-    to_sql(net, conn, include_results)
-    conn.close()
-
-
 def from_pickle(filename, convert=True):
     """
     Load a pandapower format Network from pickle file
@@ -224,7 +219,7 @@ def _from_excel_old(xls):
 
 
 def from_json(filename, convert=True, encryption_key=None, elements_to_deserialize=None,
-              keep_serialized_elements=True, add_basic_std_types=False):
+              keep_serialized_elements=True, add_basic_std_types=False, replace_elements=None):
     """
     Load a pandapower network from a JSON file.
     The index of the returned network is not necessarily in the same order as the original network.
@@ -248,6 +243,9 @@ def from_json(filename, convert=True, encryption_key=None, elements_to_deseriali
         **add_basic_std_types** (bool, False) - Add missing standard-types from pandapower standard
         type library.
 
+        **replace_elements** (dict, None) - Keys are replaced by values found in json string. Both key and
+        value are supposed to be strings.
+
     OUTPUT:
         **net** (dict) - The pandapower format network
 
@@ -267,11 +265,11 @@ def from_json(filename, convert=True, encryption_key=None, elements_to_deseriali
     return from_json_string(json_string, convert=convert, encryption_key=encryption_key,
                             elements_to_deserialize=elements_to_deserialize,
                             keep_serialized_elements=keep_serialized_elements,
-                            add_basic_std_types=add_basic_std_types)
+                            add_basic_std_types=add_basic_std_types, replace_elements=replace_elements)
 
 
 def from_json_string(json_string, convert=False, encryption_key=None, elements_to_deserialize=None,
-                     keep_serialized_elements=True, add_basic_std_types=False):
+                     keep_serialized_elements=True, add_basic_std_types=False, replace_elements=None):
     """
     Load a pandapower network from a JSON string.
     The index of the returned network is not necessarily in the same order as the original network.
@@ -294,6 +292,9 @@ def from_json_string(json_string, convert=False, encryption_key=None, elements_t
         **add_basic_std_types** (bool, False) - Add missing standard-types from pandapower standard
         type library.
 
+        **replace_elements** (dict, None) - Keys are replaced by values found in json string. Both key and
+        value are supposed to be strings.
+
     OUTPUT:
         **net** (dict) - The pandapower format network
 
@@ -302,6 +303,10 @@ def from_json_string(json_string, convert=False, encryption_key=None, elements_t
         >>> net = pp.from_json_string(json_str)
 
     """
+    if replace_elements is not None:
+        for k, v in replace_elements.items():
+            json_string = json_string.replace(k, v)
+
     if encryption_key is not None:
         json_string = io_utils.decrypt_string(json_string, encryption_key)
 
@@ -388,22 +393,3 @@ def from_json_dict(json_dict):
             net[key] = json_dict[key]
     return net
 
-
-def from_sql(con):
-    cursor = con.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    dodfs = dict()
-    for t, in cursor.fetchall():
-        table = pd.read_sql_query("SELECT * FROM %s" % t, con, index_col="index")
-        table.index.name = None
-        dodfs[t] = table
-    net = io_utils.from_dict_of_dfs(dodfs)
-    return net
-
-
-def from_sqlite(filename, netname=""):
-    import sqlite3
-    con = sqlite3.connect(filename)
-    net = from_sql(con)
-    con.close()
-    return net
