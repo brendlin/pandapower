@@ -141,7 +141,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
         
         print("V:\t", r_[Va, Vm, x_control])
         print("F:\t", F)
-       
+
         if trafo_taps:
             Ybus_m = _Ybus_modification(Ybus,tap_control_branches,hv_bus,trafo_taps,controlled_bus)        
             # V = append(V,x_control)
