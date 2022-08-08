@@ -12,7 +12,7 @@
 """
 
 from numpy import angle, exp, linalg, conj, r_, Inf, arange, zeros, max, zeros_like, column_stack, float64,\
-    int64, nan_to_num, flatnonzero, tan, deg2rad, append
+    int64, nan_to_num, flatnonzero, tan, deg2rad, append, array
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import csr_matrix as sparse, vstack, hstack, eye
 
@@ -98,12 +98,19 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
 
     # get jacobian function
     createJ = get_fastest_jacobian_function(pvpq, pq, numba, dist_slack)
+    
+    tap_control_branches = flatnonzero(nan_to_num(branch[:, VM_SET_PU]))
+    hv_bus = branch[tap_control_branches, F_BUS].real.astype(int64)
+    controlled_bus = branch[tap_control_branches, T_BUS].real.astype(int64)
+    # make initial guess for the tap control variables
+    vm_set_pu = branch[tap_control_branches, VM_SET_PU].real.astype(float64)
+    shift_degree = branch[tap_control_branches, SHIFT].real.astype(float64)
+    x_control = r_[Va[controlled_bus], vm_set_pu]
 
     nref = len(ref)
     npv = len(pv)
     npq = len(pq)
-    ntap_va = 0  # todo
-    ntap_vm = 0  # todo
+    ntap_va = ntap_vm = len(controlled_bus)
     j0 = 0
     j1 = nref if dist_slack else 0
     j2 = j1 + npv  # j1:j2 - V angle of pv buses
@@ -116,24 +123,14 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
 
     # make initial guess for the slack
     slack = (gen[:, PG].sum() - bus[:, PD].sum()) / baseMVA
-    # make initial guess for the tap control variables
-    x_control = zeros(ntap_va + ntap_vm)
-    tap_control_branches = flatnonzero(nan_to_num(branch[:, VM_SET_PU]))
-    hv_bus = branch[tap_control_branches, F_BUS].real.astype(int64)
-    controlled_bus = branch[tap_control_branches, T_BUS].real.astype(int64)
-    vm_set_pu = branch[tap_control_branches, VM_SET_PU].real.astype(float64)
-    shift_degree = branch[tap_control_branches, SHIFT].real.astype(float64)
+
     # evaluate F(x0)
     F = _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control,
                      hv_bus, controlled_bus, vm_set_pu, shift_degree)
     converged = _check_for_convergence(F, tol)
 
-    if trafo_taps:
-        Ybus = _Ybus_modification(Ybus,x_control,hv_bus,trafo_taps,controlled_bus)        
-        x_control = [1.+0.j]
-        V = append(V,x_control)
-    
     Ybus = Ybus.tocsr()
+
 
     J = None
 
@@ -141,9 +138,19 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
     while (not converged and i < max_it):
         # update iteration counter
         i = i + 1
+        
+        print("V:\t", r_[Va, Vm, x_control])
+        print("F:\t", F)
+       
+        if trafo_taps:
+            Ybus_m = _Ybus_modification(Ybus,tap_control_branches,hv_bus,trafo_taps,controlled_bus)        
+            # V = append(V,x_control)
+            # pq = r_[pq, len(pq)+len(x_control)]
+            # pvpq = r_[pv, pq]
+            Ybus_m = Ybus_m.tocsr()
 
         J = create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba,
-                                   slack_weights, dist_slack, trafo_taps, x_control)
+                                   slack_weights, dist_slack, trafo_taps, x_control, Ybus_m, controlled_bus)
 
         dx = -1 * spsolve(J, F, permc_spec=permc_spec, use_umfpack=use_umfpack)
         # update voltage
@@ -157,10 +164,11 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
         if trafo_taps:
             x_control[0:ntap_va] += dx[j6:j7]
             x_control[ntap_va:ntap_vm] += dx[j7:j8]
-
         # iwamoto multiplier to increase convergence
         if iwamoto:
             Vm, Va = _iwamoto_step(Ybus, J, F, dx, pq, npv, npq, dVa, dVm, Vm, Va, pv, j1, j2, j3, j4, j5, j6)
+            
+        
 
         V = Vm * exp(1j * Va)
         Vm = abs(V)  # update Vm and Va again in case
@@ -175,23 +183,20 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
 
         F = _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights, dist_slack, slack, trafo_taps, x_control,
                          hv_bus, controlled_bus, vm_set_pu, shift_degree)
+        
 
         converged = _check_for_convergence(F, tol)
 
     return V, converged, i, J, Vm_it, Va_it
 
-def _Ybus_modification(Ybus,x_control,hv_bus,trafo_taps,controlled_bus):
+def _Ybus_modification(Ybus,tap_control_branches,hv_bus,trafo_taps,controlled_bus):
     ##### modify the Ybus to consider the voltage source at regulating Transformer  dfd
     
 
     YS = Ybus.shape[0]  
 
-    x_control = [1.+0.j]  ### to be deleted
-    hv_bus = [0]     ### to be deleted
-    controlled_bus = [1]  ### to be deleted
-    
-    YM_ROW = vstack([Ybus, sparse((int(len(x_control)),YS))], format="csr")   ### add zero raws
-    YM_COL = hstack([YM_ROW, sparse((YS +int(len(x_control)),int(len(x_control))))], format="csr")  ### add zero column
+    YM_ROW = vstack([Ybus, sparse((int(len(tap_control_branches)),YS))], format="csr")   ### add zero raws
+    YM_COL = hstack([YM_ROW, sparse((YS +int(len(tap_control_branches)),int(len(tap_control_branches))))], format="csr")  ### add zero column
 
     c = 0
 
@@ -210,9 +215,9 @@ def _Ybus_modification(Ybus,x_control,hv_bus,trafo_taps,controlled_bus):
 
         c =+ 1
 
-    Ybus = YM_COL
+    Ybus_m = YM_COL
 
-    return Ybus
+    return Ybus_m
 
 def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_slack=False, slack=None, trafo_taps=False, x_control=None, hv_bus=None, controlled_bus=None, vm_set_pu=None, shift_degree=None):
     # evalute F(x)
@@ -226,8 +231,10 @@ def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_sl
 
     if trafo_taps:
         # todo: check if the Va indexing needs to have a lookup
-        F1 = tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(shift_degree))
-        F2 = Vm[controlled_bus] - vm_set_pu     
+        Va_q = x_control[:len(controlled_bus)]
+        F1 =  tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(shift_degree))
+        #F1 = tan(Va[controlled_bus] - Va_q) - tan(deg2rad(shift_degree))
+        F2 = Vm[controlled_bus] - vm_set_pu  # low-volrtage bus of the transformer
         F = r_[F, F1, F2]
 
     return F

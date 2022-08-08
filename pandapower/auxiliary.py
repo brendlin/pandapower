@@ -549,7 +549,7 @@ def _add_ppc_options(net, calculate_voltage_angles, trafo_model, check_connectiv
                      voltage_depend_loads=False, trafo3w_losses="hv", init_vm_pu=1.0,
                      init_va_degree=0, p_lim_default=1e9, q_lim_default=1e9,
                      neglect_open_switch_branches=False, consider_line_temperature=False,
-                     distributed_slack=False):
+                     distributed_slack=False, trafo_taps=False):
     """
     creates dictionary for pf, opf and short circuit calculations from input parameters.
     """
@@ -578,6 +578,7 @@ def _add_ppc_options(net, calculate_voltage_angles, trafo_model, check_connectiv
         "p_lim_default": p_lim_default,
         "q_lim_default": q_lim_default,
         "neglect_open_switch_branches": neglect_open_switch_branches,
+        "trafo_taps": trafo_taps
     }
     _add_options(net, options)
 
@@ -1056,11 +1057,11 @@ def _init_runpp_options(net, algorithm, calculate_voltage_angles, init,
                      trafo3w_losses=trafo3w_losses,
                      neglect_open_switch_branches=neglect_open_switch_branches,
                      consider_line_temperature=consider_line_temperature,
-                     distributed_slack=distributed_slack)
+                     distributed_slack=distributed_slack, trafo_taps=trafo_taps)
     _add_pf_options(net, tolerance_mva=tolerance_mva, trafo_loading=trafo_loading,
                     numba=numba, ac=ac, algorithm=algorithm, max_iteration=max_iteration,
                     v_debug=v_debug, only_v_results=only_v_results, use_umfpack=use_umfpack,
-                    permc_spec=permc_spec, lightsim2grid=lightsim2grid, trafo_taps=trafo_taps)
+                    permc_spec=permc_spec, lightsim2grid=lightsim2grid)
     net._options.update(overrule_options)
 
 
