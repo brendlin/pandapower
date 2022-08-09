@@ -1,8 +1,10 @@
 from numpy import complex128, float64, int32, r_
 from numpy.core.multiarray import zeros, empty, array
+import numpy as np
 from scipy.sparse import csr_matrix as sparse, vstack, hstack, eye
 
 from pandapower.pypower.dSbus_dV import dSbus_dV
+from pandapower.pypower.idx_brch import F_BUS, T_BUS
 
 try:
     # numba functions
@@ -82,7 +84,7 @@ def _create_J_without_numba(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack):
     return J
 
 
-def _create_J_modification_trafo_taps(Ybus_m, V, ref, pvpq, pq, slack_weights, dist_slack, len_J, len_control, x_control, controlled_bus):
+def _create_J_modification_trafo_taps(Ybus_m, V, ref, pvpq, pq, slack_weights, dist_slack, len_J, len_control, x_control, hv_bus, controlled_bus):
     # todo
 
     """
@@ -152,7 +154,7 @@ def _create_J_modification_trafo_taps(Ybus_m, V, ref, pvpq, pq, slack_weights, d
 
     Va_q = x_control[:len_control] 
     t= np.tan(Va[controlled_bus] - Va_q)
-    
+    # t= np.tan(Va[hv_bus] - Va[controlled_bus])
     Jccd =  sparse(((1+t**2),(np.array([0]*len_control),np.arange(0,len(x_control))[len_control:])), shape=(2,len(x_control)))
     
     Jccd = Jccd[:, controlled_bus]
@@ -175,14 +177,44 @@ def _create_J_modification_trafo_taps(Ybus_m, V, ref, pvpq, pq, slack_weights, d
     return J_m
 
 
-def create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba, slack_weights, dist_slack, trafo_taps, x_control, Ybus_m, controlled_bus):
+def J_C_Pd(Vm, Va, x_control, Ybus_m, branch, tap_control_branches, pvpq, pvpq_lookup):
+    J = np.zeros(shape=(len(pvpq), len(pvpq)), dtype=np.float64)
+    len_control = int(len(x_control)/2)
+    Va_q = x_control[:len_control]
+    Vm_q = x_control[len_control:]
+
+    # q_RT_ij =
+    for i in pvpq:
+        for q, ij in enumerate(tap_control_branches):
+            f = branch[ij, F_BUS]
+            t = branch[ij, T_BUS]
+            if i == f:
+                j = t
+            elif i == t:
+                j = f
+            else:
+                continue
+            q_RT_ij = Vm[i] * np.real(Ybus_m[i,j]) * Vm[j] * np.sin(Va[i] - Va[j] + np.angle(Ybus_m[i,j]))
+            q_RT_iq = Vm[i] * np.real(Ybus_m[i,q+len(pvpq)+1]) * Vm_q[q] * np.sin(Va[i]-Va_q[q]+ np.angle(Ybus_m[i, q+len(pvpq)+1]))
+            J[pvpq_lookup[i], pvpq_lookup[i]] = -q_RT_ij - q_RT_iq
+            J[pvpq_lookup[i], pvpq_lookup[j]] = q_RT_ij
+
+
+
+
+
+
+
+
+def create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba, slack_weights, dist_slack, trafo_taps, x_control, Ybus_m, hv_bus, controlled_bus):
     if numba:
         J = _create_J_with_numba(Ybus, V, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, slack_weights, dist_slack)
     else:
         J = _create_J_without_numba(Ybus, V, ref, pvpq, pq, slack_weights, dist_slack)
     if trafo_taps:
         # todo: implement J_m for trafo taps
-        J_m = _create_J_modification_trafo_taps(Ybus_m, V, ref, pvpq, pq, slack_weights, dist_slack, J.shape[0],int(len(x_control)/2), x_control, controlled_bus)
+        J_m = _create_J_modification_trafo_taps(Ybus_m, V, ref, pvpq, pq, slack_weights, dist_slack, J.shape[0],
+                                                int(len(x_control) / 2), x_control, hv_bus, controlled_bus)
         K_J = vstack([eye(J.shape[0], format="csr"), sparse((len(x_control), J.shape[0]))], format="csr")
         J_nr = K_J * J * K_J.T  # this extends the J matrix with 0-rows and 0-columns
         J = J_nr + J_m

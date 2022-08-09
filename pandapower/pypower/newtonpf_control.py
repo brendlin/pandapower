@@ -12,7 +12,7 @@
 """
 
 from numpy import angle, exp, linalg, conj, r_, Inf, arange, zeros, max, zeros_like, column_stack, float64,\
-    int64, nan_to_num, flatnonzero, tan, deg2rad, append, array
+    int64, nan_to_num, flatnonzero, tan, deg2rad, append, array, ones
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import csr_matrix as sparse, vstack, hstack, eye
 
@@ -106,6 +106,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
     vm_set_pu = branch[tap_control_branches, VM_SET_PU].real.astype(float64)
     shift_degree = branch[tap_control_branches, SHIFT].real.astype(float64)
     x_control = r_[Va[controlled_bus], vm_set_pu]
+    #x_control = r_[zeros(len(Va[controlled_bus])), ones(len(vm_set_pu))]
 
     nref = len(ref)
     npv = len(pv)
@@ -150,7 +151,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
             Ybus_m = Ybus_m.tocsr()
 
         J = create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba,
-                                   slack_weights, dist_slack, trafo_taps, x_control, Ybus_m, controlled_bus)
+                                   slack_weights, dist_slack, trafo_taps, x_control, Ybus_m, hv_bus, controlled_bus)
 
         dx = -1 * spsolve(J, F, permc_spec=permc_spec, use_umfpack=use_umfpack)
         # update voltage
@@ -232,8 +233,10 @@ def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_sl
     if trafo_taps:
         # todo: check if the Va indexing needs to have a lookup
         Va_q = x_control[:len(controlled_bus)]
-        F1 =  tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(shift_degree))
-        # F1 = tan(Va[controlled_bus] - Va_q) - tan(deg2rad(shift_degree))
+        #F1 =  tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(shift_degree))
+        # F1 =  tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(Va_q))
+        F1 = tan(Va[controlled_bus] - Va_q) - tan(deg2rad(shift_degree))
+        # F1 = tan(Va[controlled_bus] - Va_q) - tan(deg2rad(Va_q))
         F2 = Vm[controlled_bus] - vm_set_pu  # low-volrtage bus of the transformer
         F = r_[F, F1, F2]
 
