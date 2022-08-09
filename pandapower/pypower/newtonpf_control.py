@@ -24,7 +24,7 @@ from pandapower.pypower.idx_bus import PD, SL_FAC
 from pandapower.pypower.idx_brch import F_BUS, T_BUS, VM_SET_PU, SHIFT
 
 
-def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
+def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
     """Solves the power flow using a full Newton's method.
     Solves for bus voltages given the full system admittance matrix (for
     all buses), the complex bus power injection vector (for all buses),
@@ -187,7 +187,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options):
 
         converged = _check_for_convergence(F, tol)
 
-    return V, converged, i, J, Vm_it, Va_it
+    return V, converged, i, J, Vm_it, Va_it, None
 
 def _Ybus_modification(Ybus,tap_control_branches,hv_bus,trafo_taps,controlled_bus):
     ##### modify the Ybus to consider the voltage source at regulating Transformer  dfd
@@ -233,7 +233,7 @@ def _evaluate_Fx(Ybus, V, Va, Vm, Sbus, ref, pv, pq, slack_weights=None, dist_sl
         # todo: check if the Va indexing needs to have a lookup
         Va_q = x_control[:len(controlled_bus)]
         F1 =  tan(Va[hv_bus] - Va[controlled_bus]) - tan(deg2rad(shift_degree))
-        #F1 = tan(Va[controlled_bus] - Va_q) - tan(deg2rad(shift_degree))
+        # F1 = tan(Va[controlled_bus] - Va_q) - tan(deg2rad(shift_degree))
         F2 = Vm[controlled_bus] - vm_set_pu  # low-volrtage bus of the transformer
         F = r_[F, F1, F2]
 

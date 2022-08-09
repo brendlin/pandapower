@@ -1022,7 +1022,6 @@ def _init_runpp_options(net, algorithm, calculate_voltage_angles, init,
                         trafo_loading, enforce_q_lims, check_connectivity,
                         voltage_depend_loads, passed_parameters=None,
                         consider_line_temperature=False,
-                        distributed_slack=False,
                         tdpf=False, tdpf_update_r_theta=True, tdpf_delay_s=None,
                         distributed_slack=False, trafo_taps=False, **kwargs):
     """
