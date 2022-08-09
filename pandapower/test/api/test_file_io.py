@@ -452,5 +452,61 @@ def test_replace_elements_json_string(net_in):
     assert not nets_equal(net_orig, net_load)
 
 
+def test_json_generalized():
+    general_net0 = pp.pandapowerNet({
+        # structure data
+        "df1": [('col1', np.dtype(object)),
+                ('col2', 'f8'),],
+        "df2": [("col3", 'bool'),
+                 ("col4", "i8")]
+    })
+    general_net1 = copy.deepcopy(general_net0)
+    general_net1.df1.loc[0] = ["hey", 1.2]
+    general_net1.df2.loc[2] = [False, 2]
+
+    for general_in in [general_net0, general_net1]:
+        out = pp.from_json_string(pp.to_json(general_in),
+                                  empty_dict_like_object=pp.pandapowerNet({}))
+        assert sorted(list(out.keys())) == ["df1", "df2"]
+        assert pp.nets_equal(out, general_in)
+
+
+def test_json_index_names():
+    net_in = networks.mv_oberrhein()
+    net_in.bus.index.name = "bus_index"
+    net_out = pp.from_json_string(pp.to_json(net_in, store_index_names=True))
+    assert net_out.bus.index.name == "bus_index"
+    assert pp.nets_equal(net_out, net_in)
+
+
+def test_json_dict_of_stuff():
+    net1 = pp.networks.case9()
+    net2 = pp.networks.case14()
+    df = pd.DataFrame([[1, 2, 3], [3, 4, 5]])
+    text = "hello world"
+    d = {"net1": net1, "net2": net2, "df": df, "text": text}
+    s = pp.to_json(d)
+    dd = pp.from_json_string(s)
+    assert d.keys() == dd.keys()
+    assert_net_equal(net1, dd["net1"])
+    assert_net_equal(net2, dd["net2"])
+    pp.dataframes_equal(df, dd["df"])
+    assert text == dd["text"]
+
+
+def test_json_list_of_stuff():
+    net1 = pp.networks.case9()
+    net2 = pp.networks.case14()
+    df = pd.DataFrame([[1, 2, 3], [3, 4, 5]])
+    text = "hello world"
+    s = pp.to_json([net1, net2, df, text])
+    loaded_list = pp.from_json_string(s)
+
+    assert_net_equal(net1, loaded_list[0])
+    assert_net_equal(net2, loaded_list[1])
+    pp.dataframes_equal(df, loaded_list[2])
+    assert text == loaded_list[3]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-s"])

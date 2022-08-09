@@ -175,7 +175,7 @@ def dicts_to_pandas(json_dict):
             if pd_dict[k].shape[0] == 0:  # skip empty dataframes
                 continue
             if pd_dict[k].index[0].isdigit():
-                pd_dict[k].set_index(pd_dict[k].index.astype(numpy.int64), inplace=True)
+                pd_dict[k].set_index(pd_dict[k].index.astype(int), inplace=True)
         else:
             raise UserWarning("The network is an old version or corrupt. "
                               "Try to use the old load function")
@@ -223,11 +223,11 @@ def from_dict_of_dfs(dodfs):
             continue  # don't go into try..except
         else:
             net[item] = table
-        # set the index to be Int64Index
+        # set the index to be Int
         try:
-            net[item].set_index(net[item].index.astype(numpy.int64), inplace=True)
+            net[item].set_index(net[item].index.astype(int), inplace=True)
         except TypeError:
-            # TypeError: if not int64 index (e.g. str)
+            # TypeError: if not int index (e.g. str)
             pass
     restore_all_dtypes(net, dodfs["dtypes"])
     return net
@@ -289,9 +289,9 @@ def transform_net_with_df_and_geo(net, point_geo_columns, line_geo_columns):
         if isinstance(item, dict) and "DF" in item:
             df_dict = item["DF"]
             if "columns" in df_dict:
-                # make sure the index is Int64Index
+                # make sure the index is Int
                 try:
-                    df_index = pd.Index(df_dict['index'], dtype=np.int64)
+                    df_index = pd.Index(df_dict['index'], dtype=int)
                 except TypeError:
                     df_index = df_dict['index']
                 if GEOPANDAS_INSTALLED and "geometry" in df_dict["columns"] \
@@ -447,7 +447,7 @@ class FromSerializableRegistry():
     def DataFrame(self):
         df = pd.read_json(self.obj, precise_float=True, convert_axes=False, **self.d)
         try:
-            df.set_index(df.index.astype(numpy.int64), inplace=True)
+            df.set_index(df.index.astype(int), inplace=True)
         except (ValueError, TypeError, AttributeError):
             logger.debug("failed setting int64 index")
         # recreate jsoned objects
@@ -456,13 +456,17 @@ class FromSerializableRegistry():
                 df[col] = df[col].apply(self.pp_hook)
         return df
 
-    @from_serializable.register(class_name='pandapowerNet', module_name='pandapower.auxiliary')
+    @from_serializable.register(class_name='pandapowerNet', module_name='pandapower.auxiliary')#,
+                                # empty_dict_like_object=None)
     def pandapowerNet(self):
         if isinstance(self.obj, str):  # backwards compatibility
             from pandapower import from_json_string
             return from_json_string(self.obj)
         else:
-            net = create_empty_network()
+            if self.empty_dict_like_object is None:
+                net = create_empty_network()
+            else:
+                net = self.empty_dict_like_object
             net.update(self.obj)
             return net
 
@@ -527,9 +531,9 @@ class FromSerializableRegistry():
         def GeoDataFrame(self):
             df = geopandas.GeoDataFrame.from_features(fiona.Collection(self.obj), crs=self.d['crs'])
             if "id" in df:
-                df.set_index(df['id'].values.astype(numpy.int64), inplace=True)
+                df.set_index(df['id'].values.astype(int), inplace=True)
             else:
-                df.set_index(df.index.values.astype(numpy.int64), inplace=True)
+                df.set_index(df.index.values.astype(int), inplace=True)
             # coords column is not handled properly when using from_features
             if 'coords' in df:
                 # df['coords'] = df.coords.apply(json.loads)
@@ -550,14 +554,17 @@ class PPJSONDecoder(json.JSONDecoder):
         # net = pandapowerNet.__new__(pandapowerNet)
         #        net = create_empty_network()
         deserialize_pandas = kwargs.pop('deserialize_pandas', True)
+        empty_dict_like_object = kwargs.pop('empty_dict_like_object', None)
         super_kwargs = {"object_hook": partial(pp_hook,
                                                deserialize_pandas=deserialize_pandas,
+                                               empty_dict_like_object=empty_dict_like_object,
                                                registry_class=FromSerializableRegistry)}
         super_kwargs.update(kwargs)
         super().__init__(**super_kwargs)
 
 
-def pp_hook(d, deserialize_pandas=True, registry_class=FromSerializableRegistry):
+def pp_hook(d, deserialize_pandas=True, empty_dict_like_object=None,
+            registry_class=FromSerializableRegistry):
     try:
         if '_module' in d and '_class' in d:
             if 'pandas' in d['_module'] and not deserialize_pandas:
@@ -575,6 +582,7 @@ def pp_hook(d, deserialize_pandas=True, registry_class=FromSerializableRegistry)
             fs = registry_class(obj, d, pp_hook)
             fs.class_name = d.pop('_class', '')
             fs.module_name = d.pop('_module', '')
+            fs.empty_dict_like_object = empty_dict_like_object
             return fs.from_serializable()
         else:
             return d
