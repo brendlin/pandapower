@@ -106,7 +106,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
     vm_set_pu = branch[tap_control_branches, VM_SET_PU].real.astype(float64)
     shift_degree = branch[tap_control_branches, SHIFT].real.astype(float64)
     x_control = r_[Va[controlled_bus], vm_set_pu]
-    #x_control = r_[zeros(len(Va[controlled_bus])), ones(len(vm_set_pu))]
+    # x_control = r_[zeros(len(Va[controlled_bus])), ones(len(vm_set_pu))]
 
     nref = len(ref)
     npv = len(pv)
@@ -149,9 +149,10 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
             # pq = r_[pq, len(pq)+len(x_control)]
             # pvpq = r_[pv, pq]
             Ybus_m = Ybus_m.tocsr()
-
+    
         J = create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba,
-                                   slack_weights, dist_slack, trafo_taps, x_control, Ybus_m, hv_bus, controlled_bus)
+                                   slack_weights, dist_slack, trafo_taps, x_control, Ybus_m, hv_bus, controlled_bus,
+                                   Vm,Va, branch,tap_control_branches)
 
         dx = -1 * spsolve(J, F, permc_spec=permc_spec, use_umfpack=use_umfpack)
         # update voltage
@@ -164,7 +165,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
             Vm[pq] = Vm[pq] + dx[j5:j6]
         if trafo_taps:
             x_control[0:ntap_va] += dx[j6:j7]
-            x_control[ntap_va:ntap_vm] += dx[j7:j8]
+            x_control[ntap_va:ntap_vm + ntap_va] += dx[j7:j8]
         # iwamoto multiplier to increase convergence
         if iwamoto:
             Vm, Va = _iwamoto_step(Ybus, J, F, dx, pq, npv, npq, dVa, dVm, Vm, Va, pv, j1, j2, j3, j4, j5, j6)

@@ -192,7 +192,8 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus=None):
             g, b = calc_g_b(r, x)
 
         J = create_jacobian_matrix(Ybus, V, ref, refpvpq, pvpq, pq, createJ, pvpq_lookup, nref, npv, npq, numba,
-                                   slack_weights, dist_slack, trafo_taps=False, x_control=None)
+                                   slack_weights, dist_slack, trafo_taps=False, x_control=None,Ybus_m=None,hv_bus=None,
+                                   controlled_bus=None,Vm=None,Va=None,branch=None,tap_control_branches=None)
 
         if tdpf:
             # p.u. values for T, a1, a2, I, S
