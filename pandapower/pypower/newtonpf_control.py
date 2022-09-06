@@ -131,6 +131,8 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
     converged = _check_for_convergence(F, tol)
 
     Ybus = Ybus.tocsr()
+    Ybus_m = None
+    T = None
 
 
     J = None
@@ -189,7 +191,7 @@ def newtonpf(Ybus, Sbus, V0, ref, pv, pq, ppci, options, makeYbus):
 
         converged = _check_for_convergence(F, tol)
 
-    return V, converged, i, J, Vm_it, Va_it, None
+    return V, converged, i, J, Vm_it, Va_it, None, None
 
 def _Ybus_modification(Ybus,tap_control_branches,hv_bus,trafo_taps,controlled_bus):
     ##### modify the Ybus to consider the voltage source at regulating Transformer  dfd
