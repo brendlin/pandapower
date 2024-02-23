@@ -1241,7 +1241,9 @@ def get_power_multiplier(item, var):
     if item.outserv:
         return 1.
     if var == "m:P:bus1" and not item.HasResults():
-        raise UserWarning(f"{item} does not have results - cannot get power multiplier")
+        # raise UserWarning(f"{item} does not have results - cannot get power multiplier")
+        logger.warning(f"{item} does not have results - cannot get power multiplier")
+        return 1.
     exponent = item.GetAttributeUnit(var)
     if exponent.startswith('k'):
         multiplier = 1e-3
